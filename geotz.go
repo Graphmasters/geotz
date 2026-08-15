@@ -14,13 +14,39 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package latlong maps from a latitude and longitude to a timezone.
+// Package geotz maps from a latitude and longitude to a timezone.
 //
-// It uses the data from http://efele.net/maps/tz/world/ compressed down
-// to an internal form optimized for low memory overhead and fast lookups
-// at the expense of perfect accuracy when close to borders. The data files
-// are compiled in to this package and do not require explicit loading.
-package latlong
+// It uses the timezone boundaries published by the timezone-boundary-builder
+// project (https://github.com/evansiroky/timezone-boundary-builder), compressed
+// down to an internal form optimized for low memory overhead and fast lookups
+// at the expense of perfect accuracy when close to borders. The tables are
+// compiled in to this package and do not require explicit loading.
+//
+// # Which zone name you get back
+//
+// The tables are built from the "with oceans, now" variant of the dataset. Two
+// consequences follow from that, and both are deliberate:
+//
+// Oceans are covered, so a lookup over water returns a nautical Etc/GMT±N zone
+// rather than the empty string. In practice every coordinate on the globe
+// resolves to some zone.
+//
+// Zones that follow identical rules from now on are merged into a single region
+// labelled with one representative IANA zone name. Berlin, Rome and Madrid all
+// report "Europe/Paris", because all three follow exactly the same UTC offsets
+// and DST transitions today and for the foreseeable future. The returned name is
+// therefore correct to hand to time.LoadLocation for current and future
+// timestamps, but it is not necessarily the name a local would use, and it must
+// not be relied on for timestamps in the past — historical rules diverge even
+// where present-day rules agree.
+//
+// The returned name is either the empty string or a name that is guaranteed to
+// exist in the IANA timezone database.
+//
+// The bundled tables are derived from OpenStreetMap data and are licensed under
+// the Open Database License; see LICENSES.md in the repository root. The package
+// source itself is under the Apache License 2.0.
+package geotz
 
 import (
 	"bufio"
@@ -29,7 +55,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sort"
 	"strings"
 	"sync"
@@ -47,6 +72,15 @@ var (
 // longitude. The returned name is either the empty string (if not
 // found) or a name suitable for passing to time.LoadLocation. For
 // example, "America/New_York".
+//
+// Because the bundled tables cover the oceans as well, a lookup only returns
+// the empty string for coordinates the dataset leaves unmapped, which in
+// practice does not happen for valid coordinates. Points at sea resolve to a
+// nautical zone such as "Etc/GMT+3".
+//
+// See the package documentation for why the name is a representative of a group
+// of zones sharing the same present-day rules, and why it must not be used to
+// interpret timestamps in the past.
 func LookupZoneName(lat, long float64) string {
 	x := int((long + 180) * float64(degPixels))
 	y := int((90 - lat) * float64(degPixels))
@@ -90,7 +124,7 @@ func unpackTables() {
 			base64.NewDecoder(base64.StdEncoding,
 				strings.NewReader(zl.gzipData)))
 		check(err)
-		slurp, err := ioutil.ReadAll(zr)
+		slurp, err := io.ReadAll(zr)
 		check(err)
 		if len(slurp)%6 != 0 {
 			panic("bogus encoded tileLooker length")
