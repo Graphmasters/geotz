@@ -4,3 +4,4 @@ world
 *.png
 \#*
 .#*
+/gen/gen

@@ -1,5 +1,3 @@
-// +build latlong_gen
-
 /*
 Copyright 2014 Google Inc.
 
@@ -16,243 +14,49 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package latlong
+package main
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/binary"
-	"flag"
 	"fmt"
 	"go/format"
-	"hash/crc32"
 	"image"
 	"image/color"
-	"image/png"
-	"io/ioutil"
 	"log"
-	"os"
+	"path/filepath"
 	"sort"
-	"testing"
-	"time"
 
-	"github.com/golang/freetype/raster"
-	shp "github.com/jonas-p/go-shp"
-	"golang.org/x/image/math/fixed"
+	"github.com/Graphmasters/geotz/internal/tile"
 )
 
-var (
-	flagGenerate   = flag.Bool("generate", false, "Do generation")
-	flagWriteImage = flag.Bool("write_image", false, "Write out a debug image")
-	flagScale      = flag.Float64("scale", 32, "Scaling factor. This many pixels wide & tall per degree (e.g. scale 1 is 360 x 180). Increasingly this code assumes a scale of 32, though.")
-)
-
-func saveToPNGFile(filePath string, m image.Image) {
-	log.Printf("Encoding image %s ...", filePath)
-	f, err := os.Create(filePath)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	defer f.Close()
-	b := bufio.NewWriter(f)
-	err = png.Encode(b, m)
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	err = b.Flush()
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	fmt.Printf("Wrote %s OK.\n", filePath)
-}
-
-func cloneImage(i *image.RGBA) *image.RGBA {
-	i2 := new(image.RGBA)
-	*i2 = *i
-	i2.Pix = make([]uint8, len(i.Pix))
-	copy(i2.Pix, i.Pix)
-	return i2
-}
-
-func loadImage(filename string) *image.NRGBA {
-	f, err := os.Open(filename)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer f.Close()
-	im, _, err := image.Decode(f)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return im.(*image.NRGBA)
-}
-
-const alphaErased = 22 // magic alpha value to mean tile's been erased
-
-// the returned zoneOfColor always has A == 256.
-func worldImage(t *testing.T) (im *image.RGBA, zoneOfColor map[color.RGBA]string) {
-	scale := *flagScale
-	width := int(scale * 360)
-	height := int(scale * 180)
-
-	im = image.NewRGBA(image.Rect(0, 0, width, height))
-	zoneOfColor = map[color.RGBA]string{}
-	tab := crc32.MakeTable(crc32.IEEE + 1)
-
-	drawPoly := func(col color.RGBA, xys ...int) {
-		painter := raster.NewRGBAPainter(im)
-		painter.SetColor(col)
-		r := raster.NewRasterizer(width, height)
-		r.Start(fixed.P(xys[0], xys[1]))
-		for i := 2; i < len(xys); i += 2 {
-			r.Add1(fixed.P(xys[i], xys[i+1]))
-		}
-		r.Add1(fixed.P(xys[0], xys[1]))
-		r.Rasterize(raster.NewMonochromePainter(painter))
-	}
-
-	sr, err := shp.Open("world/tz_world.shp")
-	if err != nil {
-		t.Fatalf("Error opening world/tz_world.shp: %v; unzip it from http://efele.net/maps/tz/world/tz_world.zip", err)
-	}
-	defer sr.Close()
-
-	for sr.Next() {
-		i, s := sr.Shape()
-		p, ok := s.(*shp.Polygon)
-		if !ok {
-			t.Fatalf("Unknown shape %T", p)
-		}
-		zoneName := sr.ReadAttribute(i, 0)
-		if zoneName == "uninhabited" {
-			continue
-		}
-		if _, err := time.LoadLocation(zoneName); err != nil {
-			t.Fatalf("Failed to load: %v (%v)", zoneName, err)
-		}
-		hash := crc32.Checksum([]byte(zoneName), tab)
-		col := color.RGBA{uint8(hash >> 24), uint8(hash >> 16), uint8(hash >> 8), 255}
-		if name, ok := zoneOfColor[col]; ok {
-			if name != zoneName {
-				log.Fatalf("Color %+v dup: %s and %s", col, name, zoneName)
-			}
-		} else {
-			zoneOfColor[col] = zoneName
-		}
-
-		var xys []int
-		for _, pt := range p.Points {
-			xys = append(xys, int((pt.X+180)*scale), int((90-pt.Y)*scale))
-		}
-		drawPoly(col, xys...)
-	}
-
-	// adjust point from scale 32 to whatever the user is using.
-	ap := func(x int) int { return x * int(scale) / 32 }
-	// Fix some rendering glitches:
-	// {186 205 234 255} = Europe/Rome
-	drawPoly(color.RGBA{186, 205, 234, 255},
-		ap(6156), ap(1468),
-		ap(6293), ap(1596),
-		ap(6293), ap(1598),
-		ap(6156), ap(1540))
-	// {136 136 180 255} = America/Boise
-	drawPoly(color.RGBA{136, 136, 180, 255},
-		ap(2145), ap(1468),
-		ap(2189), ap(1468),
-		ap(2189), ap(1536),
-		ap(2145), ap(1536))
-	// {120 247 14 255} = America/Denver
-	drawPoly(color.RGBA{120, 247, 14, 255},
-		ap(2167), ap(1536),
-		ap(2171), ap(1536),
-		ap(2217), ap(1714),
-		ap(2204), ap(1724),
-		ap(2160), ap(1537))
-	return
-}
-
-// A setIndexTracker that tells each index which item number it is, and can
-// retrieve that item's index later as well.
-type setIndexTracker struct {
-	s map[interface{}]uint16
-	l []interface{}
-}
-
-func (s *setIndexTracker) Lookup(v interface{}) (idx uint16, ok bool) {
-	idx, ok = s.s[v]
-	return
-}
-
-func (s *setIndexTracker) Add(v interface{}) (idx uint16, isNew bool) {
-	if idx, ok := s.s[v]; ok {
-		return idx, false
-	}
-
-	if len(s.s) > 0xffff {
-		panic("too many items in set")
-	}
-	idx = uint16(len(s.s))
-	if s.s == nil {
-		s.s = make(map[interface{}]uint16)
-	}
-	s.s[v] = idx
-	s.l = append(s.l, v)
-	return idx, true
-}
-
-func init() {
-	testAllPixels = testAllPixels_gen
-}
-
-func testAllPixels_gen(t *testing.T) {
-	if degPixels == -1 {
-		t.Skip("data not generated yet")
-	}
-	im, zoneOfColor := worldImage(t)
-	w := im.Bounds().Max.X
-	h := im.Bounds().Max.Y
-	total, fail := 0, 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			pix := im.Pix[im.PixOffset(x, y):]
-			if pix[3] == 0 {
-				continue
-			}
-			total++
-			c := color.RGBA{
-				R: pix[0],
-				G: pix[1],
-				B: pix[2],
-				A: 255,
-			}
-			want := zoneOfColor[c]
-			if got := lookupPixel(x, y); got != want {
-				fail++
-				if fail <= 10 {
-					t.Errorf("pixel(%d, %d) = %q; want %q", x, y, got, want)
-				}
-			}
-		}
-	}
-	t.Logf("%d pixels tested; %d failures", total, fail)
-}
-
-func TestGenerate(t *testing.T) {
-	if !*flagGenerate {
-		t.Skip("skipping generationg without --generate flag")
-	}
-
-	im, zoneOfColor := worldImage(t)
-
-	// The auto-generated source file (z_gen_tables.go)
+// buildTables compresses the rasterized world into the source of
+// z_gen_tables.go: six zoom levels of tiles, from 256 pixels square down to 8,
+// where a tile that is a single timezone is stored as one entry and only the
+// 8x8 tiles that straddle a border need per-pixel detail.
+func buildTables(im *image.RGBA, zoneOfColor map[color.RGBA]string) []byte {
 	var gen bytes.Buffer
-	gen.WriteString("// Auto-generated file. See README or Makefile.\n\npackage latlong\n\n")
+	fmt.Fprintf(&gen, `// Code generated by "make z_gen_tables.go"; DO NOT EDIT.
+//
+// The timezone boundaries encoded below are derived from the
+// timezone-boundary-builder project, release %s, file %s:
+// https://github.com/evansiroky/timezone-boundary-builder
+//
+// Those boundaries are in turn derived from OpenStreetMap.
+//
+//	Contains information from OpenStreetMap, which is made available under the
+//	Open Database License (ODbL) v1.0. © OpenStreetMap contributors.
+//	https://opendatacommons.org/licenses/odbl/1-0/
+//
+// This file is therefore a Derivative Database under the ODbL and is licensed
+// under the ODbL, NOT under the Apache License 2.0 that covers the rest of this
+// package. See LICENSES.md in the repository root for what that means for you.
+
+package geotz
+
+`, *flagTZRelease, filepath.Base(*flagShapefile))
 	gen.WriteString("func init() {\n")
 
 	fmt.Fprintf(&gen, "degPixels = %d\n", int(*flagScale))
@@ -266,19 +70,18 @@ func TestGenerate(t *testing.T) {
 
 	zoneIndexOfColor := func(c color.RGBA) uint16 {
 		if (c == color.RGBA{}) {
-			return oceanIndex
+			return tile.OceanIndex
 		}
 		idx, ok := zoneIndex.Lookup(zoneOfColor[c])
 		if !ok {
-			t.Fatalf("failed to find zone index for color %+v", c)
+			log.Fatalf("failed to find zone index for color %+v", c)
 		}
 		return idx
 	}
 
-	// Add the static timezones (~408 of them). If a tile (which
-	// can range from 8 to 256 pixels square) doesn't resolve to
-	// one of these, it'll resolve to an image tile that then
-	// resolves to one of these.
+	// Add the static timezones. If a tile (which can range from 8 to 256
+	// pixels square) doesn't resolve to one of these, it'll resolve to an
+	// image tile that then resolves to one of these.
 	{
 		var zones []string
 		for _, zone := range zoneOfColor {
@@ -311,33 +114,32 @@ func TestGenerate(t *testing.T) {
 		skipSquares := 0
 		sizeCount := map[int]int{} // num colors -> count
 
-		pass.foreachTile(func(tile *tileMeta) {
-			if tile.skipped {
+		pass.foreachTile(func(tm *tileMeta) {
+			if tm.skipped {
 				skipSquares++
 				return
 			}
-			nColor := len(tile.colors)
+			nColor := len(tm.colors)
 			sizeCount[nColor]++
 			if nColor < 2 {
-				tile.erase()
+				tm.erase()
 			}
 			if nColor == 1 {
-				zoneName := zoneOfColor[tile.color()]
-				if idx, isNew := zoneIndex.Add(zoneName); isNew {
+				zoneName := zoneOfColor[tm.color()]
+				idx, isNew := zoneIndex.Add(zoneName)
+				if isNew {
 					panic("zone should've been registered: " + zoneName)
-				} else {
-					binary.Write(&keyIdxBuf, binary.BigEndian, tile.key())
-					binary.Write(&keyIdxBuf, binary.BigEndian, idx)
 				}
-				tile.drawBorder()
+				writeEntry(&keyIdxBuf, tm.key(), idx)
+				tm.drawBorder()
 				return
 			}
 			if nColor == 0 {
-				tile.paintOcean()
+				tm.paintOcean()
 				return
 			}
 			if sizeShift == 0 && nColor >= 2 {
-				ct := tile.colorTile()
+				ct := tm.colorTile()
 				idx, isNew := zoneIndex.Add(ct)
 				if isNew {
 					if nColor == 2 {
@@ -348,16 +150,19 @@ func TestGenerate(t *testing.T) {
 				} else {
 					dupColorTiles++
 				}
-				binary.Write(&keyIdxBuf, binary.BigEndian, tile.key())
-				binary.Write(&keyIdxBuf, binary.BigEndian, idx)
+				writeEntry(&keyIdxBuf, tm.key(), idx)
 			}
 		})
 		log.Printf("For size %d, skipped %d, dist: %+v", pass.size, skipSquares, sizeCount)
 
 		var zbuf bytes.Buffer
 		zw := gzip.NewWriter(&zbuf)
-		zw.Write(keyIdxBuf.Bytes())
-		zw.Close()
+		if _, err := zw.Write(keyIdxBuf.Bytes()); err != nil {
+			log.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			log.Fatal(err)
+		}
 
 		log.Printf("size %d is %d entries: %d bytes (%d bytes compressed)", pass.size, keyIdxBuf.Len()/6, keyIdxBuf.Len(), zbuf.Len())
 
@@ -375,14 +180,53 @@ func TestGenerate(t *testing.T) {
 	gen.Write(zoneLookers.Source())
 	gen.WriteString("}\n") // close init
 
-	fmt, err := format.Source(gen.Bytes())
+	src, err := format.Source(gen.Bytes())
 	if err != nil {
-		ioutil.WriteFile("z_gen_tables.go", gen.Bytes(), 0644)
-		t.Fatal(err)
+		log.Fatalf("generated source does not parse: %v", err)
 	}
-	if err := ioutil.WriteFile("z_gen_tables.go", fmt, 0644); err != nil {
-		t.Fatal(err)
+	return src
+}
+
+// writeEntry appends one [tile key][leaf index] pair, the unit a zoom level is
+// a sorted sequence of. The reader side is unpackTables in geotz.go.
+func writeEntry(buf *bytes.Buffer, key tile.Key, idx uint16) {
+	var b [6]byte
+	binary.BigEndian.PutUint32(b[0:4], uint32(key))
+	binary.BigEndian.PutUint16(b[4:6], idx)
+	buf.Write(b[:])
+}
+
+// A setIndexTracker tells each item which index it was given, and can retrieve
+// that index later.
+type setIndexTracker struct {
+	s map[any]uint16
+	l []any
+}
+
+func (s *setIndexTracker) Lookup(v any) (idx uint16, ok bool) {
+	idx, ok = s.s[v]
+	return
+}
+
+func (s *setIndexTracker) Add(v any) (idx uint16, isNew bool) {
+	if idx, ok := s.s[v]; ok {
+		return idx, false
 	}
+
+	// tile.OceanIndex is reserved to mean "no timezone here", so it is one
+	// past the last index we may hand out. Letting it be assigned to a real
+	// leaf would not fail here — it would silently produce tables where that
+	// timezone reads back as the empty string.
+	if len(s.s) >= int(tile.OceanIndex) {
+		panic("too many items in set")
+	}
+	idx = uint16(len(s.s))
+	if s.s == nil {
+		s.s = make(map[any]uint16)
+	}
+	s.s[v] = idx
+	s.l = append(s.l, v)
+	return idx, true
 }
 
 type sizePass struct {
@@ -482,11 +326,9 @@ func (p *sizePass) bitmapPixmapBytes(ct colorTile, fn func(color.RGBA) uint16) [
 		for _, c := range row {
 			if n == 0 {
 				c1 = c
-			} else {
-				if c != c1 {
-					c2 = c
-					bits |= (1 << n)
-				}
+			} else if c != c1 {
+				c2 = c
+				bits |= (1 << n)
 			}
 			n++
 		}
@@ -538,8 +380,8 @@ func (t *tileMeta) color() color.RGBA {
 	return c
 }
 
-func (t *tileMeta) key() tileKey {
-	return newTileKey(t.p.sizeShift, uint16(t.xt), uint16(t.yt))
+func (t *tileMeta) key() tile.Key {
+	return tile.NewKey(t.p.sizeShift, uint16(t.xt), uint16(t.yt))
 }
 
 func (t *tileMeta) paintOcean() {
@@ -589,7 +431,6 @@ func (t *tileMeta) erase() {
 			im.Pix[off+3] = alphaErased
 		}
 	}
-
 }
 
 func (t *tileMeta) colorTile() (ct colorTile) {
@@ -637,8 +478,12 @@ func (w *zoneLookerWriter) Add(s string) {
 func (w *zoneLookerWriter) Source() []byte {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	zw.Write(w.unbuf.Bytes())
-	zw.Close()
+	if _, err := zw.Write(w.unbuf.Bytes()); err != nil {
+		log.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		log.Fatal(err)
+	}
 
 	bstr := base64.StdEncoding.EncodeToString(buf.Bytes())
 	buf.Reset()
