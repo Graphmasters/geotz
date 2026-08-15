@@ -254,7 +254,7 @@ func TestLeafTypes(t *testing.T) {
 		}
 		checked[kind] = true
 
-		x0, y0 := int(tl.tile.x())*8, int(tl.tile.y())*8
+		x0, y0 := int(tl.key.X())*8, int(tl.key.Y())*8
 		zones := map[string]bool{}
 		for y := y0; y < y0+8; y++ {
 			for x := x0; x < x0+8; x++ {
@@ -268,42 +268,6 @@ func TestLeafTypes(t *testing.T) {
 	}
 	if len(checked) != 2 {
 		t.Errorf("only found %d of the 2 mixed leaf kinds at zoom level 0", len(checked))
-	}
-}
-
-var testAllPixels func(t *testing.T)
-
-func TestAllPixels(t *testing.T) {
-	if testAllPixels == nil {
-		t.Skip("exhaustive pixel test disabled without --tags=geotz_gen (requires extra deps)")
-	}
-	testAllPixels(t)
-}
-
-func TestNewTileKey(t *testing.T) {
-	cases := []struct {
-		size, x, y int
-	}{
-		{0, 1<<14 - 1, 1<<14 - 1},
-		{0, 1<<14 - 1, 0},
-		{0, 0, 1<<14 - 1},
-		{0, 0, 0},
-		{1, 1, 1},
-		{1, 2, 3},
-		{2, 3, 1},
-		{3, 3, 3},
-	}
-	for i, tt := range cases {
-		tk := newTileKey(byte(tt.size), uint16(tt.x), uint16(tt.y))
-		if tk.size() != byte(tt.size) {
-			t.Errorf("%d. size = %d; want %d", i, tk.size(), tt.size)
-		}
-		if tk.x() != uint16(tt.x) {
-			t.Errorf("%d. x = %d; want %d", i, tk.x(), tt.x)
-		}
-		if tk.y() != uint16(tt.y) {
-			t.Errorf("%d. y = %d; want %d", i, tk.y(), tt.y)
-		}
 	}
 }
 

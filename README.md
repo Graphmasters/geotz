@@ -15,9 +15,10 @@ there is nothing to download at startup and nothing to keep in sync at runtime.
 That trade buys a small binary and very fast lookups at the cost of exactness
 within a few kilometres of a border.
 
-Requires Go 1.22 or newer. Importing the package pulls in no dependencies at
-all — the standard library is enough; the third-party ones are used only by the
-table generator, behind a build tag.
+Requires Go 1.22 or newer, and pulls in **no dependencies at all** — `go.mod`
+has no `require` block and there is no `go.sum`. The shapefile reader and
+rasteriser that build the tables are dependencies of the generator, which is a
+separate module in [`gen/`](gen) that no consumer ever sees.
 
 This is a fork of **[bradfitz/latlong](https://github.com/bradfitz/latlong)** by
 [Brad Fitzpatrick](https://github.com/bradfitz) — thank you. The lookup
@@ -105,13 +106,23 @@ make test-all-pixels    # verify every pixel against the shapefile
 
 To move to a newer upstream release, bump `TZ_RELEASE` in the `Makefile` and run
 the above. To use a different variant, change `TZ_ZIP`/`TZ_SHP` too — the
-generator takes `-shapefile`, `-zone_field`, `-scale` and `-tz_release` flags, so
-nothing in the code needs editing. `-write_image` drops a `regions.png` of the
-rasterised world next to the tables, which is the fastest way to eyeball whether
-a new dataset rendered sanely.
+generator takes `-shapefile`, `-zone_field`, `-scale`, `-tz_release` and `-o`
+flags, so nothing in the code needs editing. `-write_image` drops a
+`regions.png` of the rasterised world, which is the fastest way to eyeball
+whether a new dataset rendered sanely.
 
-The generator lives behind the `geotz_gen` build tag so that ordinary builds and
-tests need no dependencies beyond the standard library.
+The layout keeps the dependencies away from consumers:
+
+```
+geotz.go, z_gen_tables.go   the package: standard library only
+internal/tile/              the tile-key format, shared by both sides
+gen/                        a separate module: the generator and its deps
+```
+
+`gen/` requires the parent through a `replace ../`, so it always builds against
+the working tree. Run it by hand with `cd gen && go run . -h`, and test it with
+`cd gen && go test ./...` — its `TestAllPixels` is the exhaustive check, and
+skips if the shapefile hasn't been downloaded.
 
 ## What changed in this fork
 
@@ -151,8 +162,13 @@ tzdata. Everything else follows from replacing that.
 - The repository is now a Go module, `github.com/Graphmasters/geotz`.
 - Renamed from `latlong` to `geotz`, package and all. `LookupZoneName` keeps its
   signature.
-- `io/ioutil` replaced with `io`/`os`; `// +build` replaced with `//go:build`;
-  the generator's build tag is now `geotz_gen`.
+- The generator moved out of the package — it was a build-tagged test file, and
+  is now a command in its own module under `gen/`. Consumers therefore inherit
+  nothing: the importable module has an empty `require` block and no `go.sum`,
+  and its Go floor is 1.22 rather than whatever the newest `x/image` demands.
+  The one thing both sides must agree on, the packed tile key, lives in
+  `internal/tile` so that it has a single definition.
+- `io/ioutil` replaced with `io`/`os`.
 - `Makefile` fetches with `curl`, pins the upstream release, and gained `world`,
   `test` and `test-all-pixels` targets.
 

@@ -13,11 +13,11 @@ package pulls in both.
 
 | Path | Licence | Copyright |
 |---|---|---|
-| `geotz.go`, `geotz_test.go`, `gen_test.go`, `Makefile`, docs | Apache License 2.0 — see [`COPYING`](COPYING) | 2014 Google Inc., and later contributors |
+| `geotz.go`, `internal/tile/`, `gen/`, `Makefile`, tests, docs | Apache License 2.0 — see [`COPYING`](COPYING) | 2014 Google Inc., and later contributors |
 | `z_gen_tables.go` — *the data encoded in it* | Open Database License (ODbL) v1.0 — see [`DATA_LICENSE`](DATA_LICENSE) | © OpenStreetMap contributors |
 
 `z_gen_tables.go` is generated, so it has two aspects. The Go syntax wrapped
-around the tables comes from `gen_test.go` and is Apache-2.0 like the rest of
+around the tables comes from the generator in `gen/` and is Apache-2.0 like the rest of
 the code; the bytes inside the string literals are compressed OpenStreetMap
 boundary data and are ODbL. The file carries a header saying so.
 
@@ -37,8 +37,8 @@ The exact input is the `timezones-with-oceans-now.shapefile.zip` asset of
 [timezone-boundary-builder release
 2026c](https://github.com/evansiroky/timezone-boundary-builder/releases/tag/2026c),
 pinned in the [`Makefile`](Makefile). `make z_gen_tables.go` downloads that file
-and regenerates the tables; `gen_test.go` is the complete algorithm that turns
-one into the other.
+and regenerates the tables; the `gen/` module is the complete algorithm that
+turns one into the other.
 
 Before this fork, the data came from Eric Muller's `tz_world` at
 [efele.net](http://efele.net/maps/tz/world/), which Muller placed in the public
@@ -101,7 +101,7 @@ statement replacing the one in the generated header.
 | §4.2 Notices | Convey only under this licence; include the licence or its URI, in the database and in the documentation; keep existing notices intact | [`DATA_LICENSE`](DATA_LICENSE) holds the full text; the header of `z_gen_tables.go` and the package doc carry the notice; this file and the README repeat it. The upstream shapefile zips contain no notice file, so there was nothing to keep intact — this one originates it |
 | §4.3 Notice for produced works | Make users aware the content comes from the database and is available under this licence | Same notice, plus the attribution string above for downstream products |
 | §4.4 Share alike | A publicly used derivative database must be under this licence, a later version, or a compatible one | The data in `z_gen_tables.go` is ODbL v1.0. It is *not* covered by `COPYING` |
-| §4.6 Access to derivative databases | Offer either the whole derivative database *or* a file of the alterations *or* the method of making them, "such as an algorithm" | This repository takes the third option and publishes the method: `gen_test.go` plus a `Makefile` that names the exact upstream release. The generated tables themselves are also right here in the repository |
+| §4.6 Access to derivative databases | Offer either the whole derivative database *or* a file of the alterations *or* the method of making them, "such as an algorithm" | This repository takes the third option and publishes the method: the generator in `gen/` plus a `Makefile` that names the exact upstream release. The generated tables themselves are also right here in the repository |
 | §4.7 Technological measures | No DRM or added terms restricting the licence | None applied |
 | §4.8 Licensing of others | No sublicensing | Nothing here purports to sublicense the data; recipients get their licence from the ODbL directly |
 | Apache-2.0 §4 | Retain notices, state changes | `COPYING` and the original `Copyright 2014 Google Inc.` headers are intact; changes are listed in the README and in `NOTICE` |

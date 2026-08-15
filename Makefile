@@ -11,9 +11,11 @@ TZ_SHP = world/combined-shapefile-with-oceans-now.shp
 
 TZ_URL = https://github.com/evansiroky/timezone-boundary-builder/releases/download/$(TZ_RELEASE)/$(TZ_ZIP)
 
+# The generator is a separate module (see gen/go.mod), so it is run from its own
+# directory and writes back up here.
 .PHONY: z_gen_tables.go
-z_gen_tables.go: gen_test.go geotz.go $(TZ_SHP)
-	go test --tags=geotz_gen --generate -run TestGenerate -v
+z_gen_tables.go: gen/main.go gen/tables.go internal/tile/tile.go $(TZ_SHP)
+	cd gen && go run . -shapefile ../$(TZ_SHP) -tz_release $(TZ_RELEASE) -o ../z_gen_tables.go
 
 # make world downloads and unpacks the boundary shapefile (~39 MB download,
 # ~60 MB unpacked) into world/, which is .gitignore'd.
@@ -29,9 +31,10 @@ $(TZ_SHP):
 .PHONY: test
 test:
 	go test ./...
+	cd gen && go test ./...
 
-# The exhaustive pixel-by-pixel test of the generated tables against the
-# rasterized shapefile. Needs the shapefile and takes a few minutes.
+# The exhaustive pixel-by-pixel check of the generated tables against the
+# rasterized shapefile. Needs the shapefile; skips without it.
 .PHONY: test-all-pixels
 test-all-pixels: $(TZ_SHP)
-	go test --tags=geotz_gen -run TestAllPixels -v
+	cd gen && go test -run TestAllPixels -v -timeout 30m ./...
