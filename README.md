@@ -15,6 +15,10 @@ there is nothing to download at startup and nothing to keep in sync at runtime.
 That trade buys a small binary and very fast lookups at the cost of exactness
 within a few kilometres of a border.
 
+Requires Go 1.22 or newer. Importing the package pulls in no dependencies at
+all — the standard library is enough; the third-party ones are used only by the
+table generator, behind a build tag.
+
 This is a fork of **[bradfitz/latlong](https://github.com/bradfitz/latlong)** by
 [Brad Fitzpatrick](https://github.com/bradfitz) — thank you. The lookup
 algorithm and the compressed table format are his design; this fork replaces the
