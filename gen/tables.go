@@ -199,26 +199,30 @@ func writeEntry(buf *bytes.Buffer, key tile.Key, idx uint16) {
 // A setIndexTracker tells each item which index it was given, and can retrieve
 // that index later.
 type setIndexTracker struct {
-	s map[interface{}]uint16
-	l []interface{}
+	s map[any]uint16
+	l []any
 }
 
-func (s *setIndexTracker) Lookup(v interface{}) (idx uint16, ok bool) {
+func (s *setIndexTracker) Lookup(v any) (idx uint16, ok bool) {
 	idx, ok = s.s[v]
 	return
 }
 
-func (s *setIndexTracker) Add(v interface{}) (idx uint16, isNew bool) {
+func (s *setIndexTracker) Add(v any) (idx uint16, isNew bool) {
 	if idx, ok := s.s[v]; ok {
 		return idx, false
 	}
 
-	if len(s.s) > 0xffff {
+	// tile.OceanIndex is reserved to mean "no timezone here", so it is one
+	// past the last index we may hand out. Letting it be assigned to a real
+	// leaf would not fail here — it would silently produce tables where that
+	// timezone reads back as the empty string.
+	if len(s.s) >= int(tile.OceanIndex) {
 		panic("too many items in set")
 	}
 	idx = uint16(len(s.s))
 	if s.s == nil {
-		s.s = make(map[interface{}]uint16)
+		s.s = make(map[any]uint16)
 	}
 	s.s[v] = idx
 	s.l = append(s.l, v)
@@ -322,11 +326,9 @@ func (p *sizePass) bitmapPixmapBytes(ct colorTile, fn func(color.RGBA) uint16) [
 		for _, c := range row {
 			if n == 0 {
 				c1 = c
-			} else {
-				if c != c1 {
-					c2 = c
-					bits |= (1 << n)
-				}
+			} else if c != c1 {
+				c2 = c
+				bits |= (1 << n)
 			}
 			n++
 		}

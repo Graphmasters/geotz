@@ -26,7 +26,6 @@ package main
 import (
 	"bufio"
 	"flag"
-	"fmt"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -209,7 +208,7 @@ func saveToPNGFile(filePath string, m image.Image) {
 	if err := f.Close(); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Wrote %s OK.\n", filePath)
+	log.Printf("wrote %s", filePath)
 }
 
 func cloneImage(i *image.RGBA) *image.RGBA {

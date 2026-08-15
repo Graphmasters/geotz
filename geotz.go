@@ -181,7 +181,6 @@ func unpackTables() {
 			leaf[i] = pixmap(buf[:128])
 		}
 	}
-
 }
 
 func check(err error) {
