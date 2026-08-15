@@ -1,10 +1,11 @@
-Graphmasters geotz
+geotz
 Copyright 2014 Google Inc.
+Copyright 2026 Graphmasters GmbH
 
 This package is a fork of github.com/bradfitz/latlong by Brad Fitzpatrick,
 which was originally developed at Google Inc. The source code is licensed
 under the Apache License, Version 2.0; see COPYING. Files have been modified
-by Graphmasters; see README.md for what changed.
+by Graphmasters GmbH; see README.md for what changed.
 
 --------------------------------------------------------------------------
 Timezone boundary data (z_gen_tables.go)
